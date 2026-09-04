@@ -1,0 +1,64 @@
+name: Compilar e Liberar Atualização
+
+on:
+  push:
+    tags:
+      - 'v*' # O robô só é acionado quando você cria uma Tag de versão (ex: v1.0.1)
+
+jobs:
+  build:
+    runs-on: windows-latest # Roda em uma máquina Windows para compilar o .exe perfeitamente
+
+    permissions:
+      contents: write # Dá permissão para o robô criar a Release e subir os arquivos
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar o ambiente Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compilar versão de produção (Release)
+        run: cargo build --release
+
+      - name: Gerar Hash e o arquivo update.json automaticamente
+        id: prepare_release
+        shell: bash
+        run: |
+          # Nome do executável gerado pelo Cargo
+          EXE_NAME="app_exe_update.exe"
+          EXE_PATH="target/release/$EXE_NAME"
+          
+          # Pega a versão da Tag (ex: se a tag for v1.0.1, a versão vira 1.0.1)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Calcula o SHA-256 do executável gerado automaticamente
+          HASH=$(sha256sum "$EXE_PATH" | awk '{print $1}')
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+          # Monta a URL de download direto baseada no seu repositório
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${EXE_NAME}"
+          
+          # Cria o arquivo update.json sozinho com os dados corretos
+          cat << EOF > update.json
+          {
+            "version": "$VERSION",
+            "hash": "$HASH",
+            "download_url": "$DOWNLOAD_URL"
+          }
+          EOF
+          
+          echo "JSON gerado com sucesso!"
+
+      - name: Publicar Release e Arquivos no GitHub
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/release/app_exe_update.exe
+            update.json
+          tag_name: ${{ github.ref }}
+          name: Versão ${{ steps.prepare_release.outputs.version }}
+          draft: false
+          prerelease: false
